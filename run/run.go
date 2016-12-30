@@ -1,6 +1,7 @@
 package run
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -8,7 +9,6 @@ import (
 	"os/exec"
 	"syscall"
 
-	"github.com/tsavola/wag"
 	"github.com/tsavola/wag/sections"
 	"github.com/tsavola/wag/traps"
 	"github.com/tsavola/wag/types"
@@ -147,6 +147,111 @@ func (env *Environment) ImportGlobal(module, field string, t types.T) (value uin
 	return
 }
 
+const (
+	sectionSize = 128 * 1024 * 1024
+	fooSize     = sectionSize * 3
+)
+
+type Section struct {
+	data []byte
+	size int
+}
+
+func (s *Section) Write(buf []byte) (n int, err error) {
+	newSize := int64(s.size + len(buf))
+	if newSize > int64(len(s.data)) {
+		err = bytes.ErrTooLarge
+		return
+	}
+	copy(s.data[s.size:], buf)
+	s.size = int(newSize)
+	n = len(buf)
+	return
+}
+
+func (s *Section) WriteByte(b byte) (err error) {
+	if s.size >= len(s.data) {
+		err = bytes.ErrTooLarge
+		return
+	}
+	s.data[s.size] = b
+	s.size++
+	return
+}
+
+func (s *Section) Bytes() []byte {
+	return s.data[:s.size]
+}
+
+func (s *Section) Grow(n int) {
+	if n < 0 || int64(s.size+n) > int64(len(s.data)) {
+		panic(bytes.ErrTooLarge)
+	}
+}
+
+func (s *Section) Len() int {
+	return s.size
+}
+
+type Foo struct {
+	f *os.File
+	b []byte
+
+	ROData Section
+	Text   Section
+	Data   Section
+}
+
+func NewFoo() (foo *Foo, err error) {
+	fd, err := memfd.Create("maps", memfd.CLOEXEC)
+	if err != nil {
+		return
+	}
+
+	f := os.NewFile(uintptr(fd), "maps")
+
+	err = f.Truncate(fooSize)
+	if err != nil {
+		f.Close()
+		return
+	}
+
+	b, err := syscall.Mmap(fd, 0, fooSize, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED|syscall.MAP_NORESERVE)
+	if err != nil {
+		f.Close()
+		return
+	}
+
+	foo = &Foo{
+		f: f,
+		b: b,
+
+		ROData: Section{
+			data: b[0:sectionSize],
+		},
+		Text: Section{
+			data: b[sectionSize : sectionSize*2],
+		},
+		Data: Section{
+			data: b[sectionSize*2 : sectionSize*3],
+		},
+	}
+	return
+}
+
+func (foo *Foo) Close() error {
+	err1 := syscall.Munmap(foo.b)
+	err2 := foo.f.Close()
+
+	if err1 != nil {
+		return err1
+	} else if err2 != nil {
+		return err2
+	} else {
+		return nil
+	}
+}
+
 type payloadInfo struct {
 	PageSize       uint32
 	RODataSize     uint32
@@ -163,17 +268,15 @@ type Payload struct {
 	info payloadInfo
 }
 
-func NewPayload(m *wag.Module, growMemorySize wasm.MemorySize, stackSize int32) (payload *Payload, err error) {
-	initMemorySize, _ := m.MemoryLimits()
-
+func NewPayload(foo *Foo, memoryOffset int32, initMemorySize, growMemorySize wasm.MemorySize, stackSize int32) (payload *Payload, err error) {
 	if initMemorySize > growMemorySize {
 		err = fmt.Errorf("initial memory size %d exceeds maximum memory size %d", initMemorySize, growMemorySize)
 		return
 	}
 
-	roData := m.ROData()
-	text := m.Text()
-	data, memoryOffset := m.Data()
+	roData := foo.ROData.Bytes()
+	text := foo.Text.Bytes()
+	data := foo.Data.Bytes()
 
 	mapsFd, err := memfd.Create("maps", memfd.CLOEXEC|memfd.ALLOW_SEALING)
 	if err != nil {

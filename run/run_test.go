@@ -46,23 +46,39 @@ func TestRun(t *testing.T) {
 
 	r := bufio.NewReader(f)
 
+	foo, err := run.NewFoo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer foo.Close()
+
 	var m wag.Module
 
-	err = m.Load(r, env, nil, nil, run.RODataAddr, nil)
+	err = m.Load(r, env, &foo.Text, nil, run.RODataAddr, nil)
 	if err != nil {
 		t.Fatalf("load error: %v", err)
 	}
 
+	if _, err := foo.ROData.Write(m.ROData()); err != nil {
+		t.Fatal(err)
+	}
+
+	data, memoryOffset := m.Data()
+
+	if _, err := foo.Data.Write(data); err != nil {
+		t.Fatal(err)
+	}
+
 	if dumpText && testing.Verbose() {
-		dewag.PrintTo(os.Stdout, m.Text(), m.FunctionMap(), nil)
+		dewag.PrintTo(os.Stdout, foo.Text.Bytes(), m.FunctionMap(), nil)
 	}
 
-	_, memorySize := m.MemoryLimits()
-	if memorySize > memorySizeLimit {
-		memorySize = memorySizeLimit
+	initMemorySize, growMemorySize := m.MemoryLimits()
+	if growMemorySize > memorySizeLimit {
+		growMemorySize = memorySizeLimit
 	}
 
-	payload, err := run.NewPayload(&m, memorySize, stackSize)
+	payload, err := run.NewPayload(foo, memoryOffset, initMemorySize, growMemorySize, stackSize)
 	if err != nil {
 		t.Fatalf("payload error: %v", err)
 	}
