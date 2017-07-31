@@ -163,8 +163,8 @@ static void enter(uint64_t page_size, void *text_ptr, void *memory_ptr, void *in
 		"        test    %%rax, %%rax                            \n"
 		"        jne     runtime_exit                            \n"
 		// execute runtime, which immediately makes syscall with these parameters
-		"        mov     $"xstr(GATE_LOADER_TEXT_ADDR)", %%rdi   \n"
-		"        mov     $"xstr(GATE_LOADER_TEXT_SIZE)", %%esi   \n"
+		"        mov     $"xstr(LOADER_TEXT_ADDR)", %%rdi        \n"
+		"        mov     $"xstr(LOADER_TEXT_UNMAP_LEN)", %%esi   \n"
 		"        mov     $"xstr(SYS_munmap)", %%eax              \n"
 		"        jmp     runtime_start_with_syscall              \n"
 		:

@@ -5,20 +5,18 @@
 
 #define INT3 0xcc
 
-.section .runtime,"ax",%progbits
+.section .text
 
-	.align	16,INT3
-
-	.rept	16
-	int3
-	.endr
+#if RUNTIME_PAD
+	.space	RUNTIME_PAD-2,INT3	// syscall instruction takes 2 bytes
+#endif
 
 	.globl	runtime_start_with_syscall
 	.type	runtime_start_with_syscall,@function
 
 // rax = munmap syscall number
 // rdi = loader .text section address (1st syscall arg)
-// rsi = loader .text section size (2nd syscall arg)
+// rsi = length to be unmapped (2nd syscall arg)
 // r9  = suspend flag
 // r12 = text address
 // r13 = stack limit
@@ -27,9 +25,9 @@
 // mm0 = trap handler
 // mm1 = memory growth limit
 runtime_start_with_syscall:
-	// unmap loader .text section (parameters supplied by the caller)
-	syscall
-	mov     $80, %edi
+	// unmap part of loader .text section (parameters supplied by caller)
+	syscall				// at the end of a page
+	mov     $80, %edi		// at the start of a page
 	test    %rax, %rax
 	jne     .Lexit
 
