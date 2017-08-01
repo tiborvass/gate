@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/gorilla/websocket"
-
 	"github.com/tsavola/gate"
 )
 
@@ -291,7 +290,7 @@ func handleSpawnWasm(w http.ResponseWriter, r *http.Request, s *State) {
 
 	go func() {
 		defer out.Close()
-		inst.run(&s.Settings, in, out)
+		inst.run(s, in, out)
 	}()
 
 	writeJSON(w, &gate.Spawned{
@@ -338,7 +337,7 @@ func handleSpawnJSON(w http.ResponseWriter, r *http.Request, s *State) {
 
 	go func() {
 		defer out.Close()
-		inst.run(&s.Settings, in, out)
+		inst.run(s, in, out)
 	}()
 
 	writeJSON(w, &gate.Spawned{
@@ -431,7 +430,7 @@ func handleRunWebsocket(w http.ResponseWriter, r *http.Request, s *State) {
 		return
 	}
 
-	inst.run(&s.Settings, newWebsocketReader(conn), websocketWriter{conn})
+	inst.run(s, newWebsocketReader(conn), websocketWriter{conn})
 
 	closeMsg := websocketNormalClosure
 
@@ -491,7 +490,7 @@ func handleRunPost(w http.ResponseWriter, r *http.Request, s *State) {
 
 	w.Header().Set("X-Gate-Instance-Id", makeHexId(instId))
 
-	inst.run(&s.Settings, r.Body, w)
+	inst.run(s, r.Body, w)
 
 	if result, ok := s.waitInstance(inst, instId); ok {
 		switch {

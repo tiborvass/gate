@@ -18,12 +18,10 @@ import (
 	"testing"
 
 	"github.com/gorilla/websocket"
-
 	"github.com/tsavola/gate"
-	"github.com/tsavola/wag/wasm"
-
 	"github.com/tsavola/gate/run"
 	"github.com/tsavola/gate/service/origin"
+	"github.com/tsavola/wag/wasm"
 )
 
 func parseId(s string) uint {
@@ -71,11 +69,15 @@ func newEnvironment() *run.Environment {
 	return env
 }
 
+func services(r io.Reader, w io.Writer, _ func(io.Reader, io.Writer) (uint64, bool)) run.ServiceRegistry {
+	return origin.CloneRegistryWith(nil, r, w)
+}
+
 var handler = NewHandler("/", NewState(Settings{
 	MemorySizeLimit: 64 * wasm.Page,
 	StackSize:       65536,
 	Env:             newEnvironment(),
-	Services:        func(r io.Reader, w io.Writer) run.ServiceRegistry { return origin.CloneRegistryWith(nil, r, w) },
+	Services:        services,
 	Log:             log.New(os.Stderr, "log: ", 0),
 	Debug:           os.Stdout,
 }))

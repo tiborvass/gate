@@ -9,13 +9,15 @@ import (
 	"encoding/binary"
 	"io"
 	"sync"
-
-	"github.com/tsavola/wag"
-	"github.com/tsavola/wag/traps"
+	"sync/atomic"
 
 	"github.com/tsavola/gate"
 	"github.com/tsavola/gate/run"
+	"github.com/tsavola/wag"
+	"github.com/tsavola/wag/traps"
 )
+
+var cloneCount int32 // XXX
 
 func makeId() (id uint64) {
 	if err := binary.Read(rand.Reader, binary.LittleEndian, &id); err != nil {
@@ -188,6 +190,18 @@ func (s *State) instantiate(progId uint64, progHash []byte, originPipe *pipe) (i
 	return
 }
 
+func (s *State) cloneInstance(prog *program) (inst *instance, instId uint64) {
+	instId = makeId()
+	inst = newInstance(nil)
+	inst.program = prog
+
+	s.lock.Lock()
+	prog.instanceCount++
+	s.instances[instId] = inst
+	s.lock.Unlock()
+	return
+}
+
 func (s *State) cancel(inst *instance, instId uint64) {
 	s.lock.Lock()
 	delete(s.instances, instId)
@@ -315,7 +329,7 @@ func (inst *instance) attachOrigin() (pipe *pipe) {
 	return
 }
 
-func (inst *instance) run(s *Settings, r io.Reader, w io.Writer) {
+func (inst *instance) run(s *State, r io.Reader, w io.Writer) {
 	var (
 		exit     int
 		trap     traps.Id
@@ -362,7 +376,23 @@ func (inst *instance) run(s *Settings, r io.Reader, w io.Writer) {
 
 	internal = true
 
-	exit, trap, err = run.Run(s.Env, payload, s.Services(r, w), s.Debug)
+	clone := func(r io.Reader, w io.Writer) (childId uint64, ok bool) {
+		if atomic.AddInt32(&cloneCount, 1) > 4 {
+			return
+		}
+
+		child, childId := s.cloneInstance(inst.program)
+
+		go func() {
+			defer s.waitInstance(child, childId)
+			child.run(s, r, w)
+		}()
+
+		ok = true
+		return
+	}
+
+	exit, trap, err = run.Run(s.Env, payload, s.Services(r, w, clone), s.Debug)
 	if err != nil {
 		s.Log.Printf("run error: %v", err)
 		return

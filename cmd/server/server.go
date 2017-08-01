@@ -11,13 +11,13 @@ import (
 	"path"
 	"time"
 
-	"github.com/tsavola/wag/wasm"
-	"golang.org/x/crypto/acme/autocert"
-
 	"github.com/tsavola/gate/run"
 	"github.com/tsavola/gate/server"
+	"github.com/tsavola/gate/service/clone"
 	_ "github.com/tsavola/gate/service/defaults"
 	"github.com/tsavola/gate/service/origin"
+	"github.com/tsavola/wag/wasm"
+	"golang.org/x/crypto/acme/autocert"
 )
 
 const (
@@ -117,6 +117,8 @@ func main() {
 	os.Exit(1)
 }
 
-func services(r io.Reader, w io.Writer) run.ServiceRegistry {
-	return origin.CloneRegistryWith(nil, r, w)
+func services(r io.Reader, w io.Writer, cloner func(io.Reader, io.Writer) (uint64, bool)) run.ServiceRegistry {
+	subReg := origin.CloneRegistryWith(nil, r, w)
+	clone.Register(subReg, cloner)
+	return subReg
 }
